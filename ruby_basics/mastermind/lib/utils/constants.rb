@@ -1,6 +1,4 @@
 module Constants
-  attr_reader :color_map, :default_code_length, :max_number_of_guesses, :score_map, :max_score
-
   COLORS_MAP = {
     'b' => :blue,
     'g' => :green,
