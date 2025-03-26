@@ -1,5 +1,6 @@
 require 'csv'
 require 'fileutils'
+require 'erb'
 require 'google/apis/civicinfo_v2'
 
 def clean_zipcode(zipcode)
@@ -10,38 +11,49 @@ def legislators_by_zipcode(zipcode)
   civic_info = Google::Apis::CivicinfoV2::CivicInfoService.new
   civic_info.key = File.read('secret.key').strip
   begin
-    legislators = civic_info.representative_info_by_address(
+    civic_info.representative_info_by_address(
       address: zipcode,
       levels: 'country',
       roles: %w[legislatorUpperBody legislatorLowerBody]
-    )
-    legislators.officials.map(&:name).join(', ')
+    ).officials
   rescue Google::Apis::ClientError
     'You can find your representatives by visiting www.commoncause.org/take-action/find-elected-officials'
   end
 end
 
-def create_file_letter(name, content, template, index)
-  result = template.gsub('FIRST_NAME', name)
-  result = result.gsub('LEGISLATORS', content)
-  FileUtils.mkdir_p('letters')
+def create_file_letter(id, template)
+  output_dir = 'output'
+  filename = "#{output_dir}/letter_#{id}.html"
+  FileUtils.mkdir_p(output_dir)
   file = nil
   begin
-    file = File.open("letters/letter_#{index}.html", 'w') { |f| f.write(result) }
+    file = File.open(filename, 'w') { |f| f.puts template }
   rescue StandardError
     file.close
   end
 end
 
+def show_progress_bar(progress, total)
+  current_progress = (10 * progress / total)
+  progress_bar = "[#{('=' * current_progress).ljust(10, ' ')}]"
+  puts progress_bar
+end
 puts 'Event Manager Initialized!'
 
-template_letter = File.read('form_letter.html')
+input_file = 'event_attendees.csv'
+input_template = 'form_letter.erb'
+template_letter = File.read(input_template)
+erb_template = ERB.new template_letter
 
-contents = CSV.open('event_attendees.csv', headers: true, header_converters: :symbol)
+contents = CSV.open(input_file, headers: true, header_converters: :symbol)
+contents_length = CSV.read(input_file, headers: true).length
 contents.each_with_index do |row, index|
+  id = row[0]
   name = row[:first_name]
+
   zipcode = clean_zipcode(row[:zipcode])
-  legislators_string = legislators_by_zipcode(zipcode)
-  create_file_letter(name, legislators_string, template_letter, index)
-  puts "#{name} #{zipcode} #{legislators_string}"
+  legislators = legislators_by_zipcode(zipcode)
+
+  create_file_letter(id, erb_template.result(binding))
+  show_progress_bar(index + 1, contents_length)
 end
